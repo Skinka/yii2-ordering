@@ -14,7 +14,7 @@ use yii\i18n\PhpMessageSource;
 class OrderBehavior extends Behavior
 {
     public $orderAttribute = 'ordering';
-    public $groupOrder = null;
+    public $groupOrder = [];
 
     /**
      * @inheritdoc
@@ -61,7 +61,7 @@ class OrderBehavior extends Behavior
             ) {
                 $this->owner->{$this->orderAttribute} = $max + 1;
             }
-            if ($event->sender->attributes[$this->orderAttribute]==='') {
+            if ($event->sender->attributes[$this->orderAttribute] === '') {
                 $this->owner->{$this->orderAttribute} = 0;
             }
         }
@@ -72,8 +72,18 @@ class OrderBehavior extends Behavior
      */
     public function afterSave($event)
     {
-        if ($this->groupOrder !== null && $event->changedAttributes[$this->groupOrder] != $event->sender->attributes[$this->groupOrder]) {
-            $this->groupOrdering($event->changedAttributes[$this->groupOrder]);
+        if (!empty($this->groupOrder)) {
+            $send = false;
+            $groupOrder = [];
+            foreach ($this->groupOrder as $item) {
+                if (isset($event->changedAttributes[$item]) && $event->changedAttributes[$item] != $event->sender->attributes[$item]) {
+                    $send = true;
+                }
+                $groupOrder = ArrayHelper::merge($groupOrder, [$item => $event->sender->attributes[$item]]);
+            }
+            if ($send) {
+                $this->groupOrdering($groupOrder);
+            }
         }
     }
 
@@ -82,10 +92,9 @@ class OrderBehavior extends Behavior
      */
     public function beforeSave($event)
     {
-        if ($this->groupOrder !== null && $event->sender->oldAttributes[$this->groupOrder] != $event->sender->attributes[$this->groupOrder]) {
-            $this->moveItem(null, $event->sender->attributes[$this->orderAttribute]);
-        } else if ($event->sender->oldAttributes[$this->orderAttribute] != $event->sender->attributes[$this->orderAttribute]) {
-            $this->moveItem($event->sender->oldAttributes[$this->orderAttribute], $event->sender->attributes[$this->orderAttribute]);
+        if ($event->sender->oldAttributes[$this->orderAttribute] != $event->sender->attributes[$this->orderAttribute]) {
+            $this->moveItem($event->sender->oldAttributes[$this->orderAttribute],
+                $event->sender->attributes[$this->orderAttribute]);
         }
     }
 
@@ -126,8 +135,12 @@ class OrderBehavior extends Behavior
             $fieldUpdate = [$this->orderAttribute => new Expression($db->quoteColumnName($this->orderAttribute) . '-1')];
             $condition = ['between', $this->orderAttribute, (int)$from + 1, (int)$to];
         }
-        if ($this->groupOrder !== null) {
-            $condition = ArrayHelper::merge(['and', $condition], [[$this->groupOrder => $this->owner->{$this->groupOrder}]]);
+        if (!empty($this->groupOrder)) {
+            $group = [];
+            foreach ($this->groupOrder as $item) {
+                $group[] = [$item => $this->owner->{$item}];
+            }
+            $condition = ArrayHelper::merge(['and', $condition], $group);
         }
         $this->owner->updateAll($fieldUpdate, $condition);
     }
@@ -135,36 +148,46 @@ class OrderBehavior extends Behavior
     public function getMaxOrderValue()
     {
         $max = (new Query())->from($this->owner->tableName());
-        if ($this->groupOrder !== null) {
-            $max = $max->where([$this->groupOrder => $this->owner->{$this->groupOrder}]);
+        if (!empty($this->groupOrder)) {
+            foreach ($this->groupOrder as $item) {
+                $max->andWhere([$item => $this->owner->{$item}]);
+            }
         }
-        $max = $max->max($this->orderAttribute);
-        return $max;
+        return $max->max($this->orderAttribute);
     }
 
-    /**
-     * @param null|integer $group_id
-     */
-    private function groupOrdering($group_id = null)
+    private function groupOrdering($groupItems = [])
     {
-        $db = $this->owner->getDb();
-        $db->createCommand("update " . $db = $this->owner->tableName() . " set " .
-                $db->quoteColumnName($this->orderAttribute) . " = (select @a:= @a + 1 from (select @a:=-1) as inc)" .
-                (($this->groupOrder !== null) ? " where " . $db->quoteColumnName($this->groupOrder) . " = " . $group_id : "") .
-                " order by " . $db->quoteColumnName($this->orderAttribute) . " asc")
-            ->execute();
+        /*$db = $this->owner->getDb();
+        $sql = "update " . $db = $this->owner->tableName() . " set " .
+                $db->quoteColumnName($this->orderAttribute) . " = (select @a:= @a + 1 from (select @a:=-1) as inc)";
+        if ($this->groupOrder !== null && !empty($groupItems)) {
+            $groupSql = ' where ';
+            foreach ($groupItems as $name => $value) {
+                if (is_string($value)) {
+                    $groupSql .= '`'.$name.'`' . " = '" . $value . "' and ";
+                } else {
+                    $groupSql .= '`'.$name.'`' . " = " . $value . ' and ';
+                }
+            }
+            $sql .= substr($groupSql, 0, -5);
+        }
+        $sql .= " order by `" . $this->orderAttribute . "` asc";
+        $db->createCommand($sql)->execute();*/
     }
 
     public function getOrderingList($valueField, $textField)
     {
         /** @var \yii\db\ActiveRecord $items */
         $items = new $this->owner;
-        $items = $items->find();
-        if ($this->groupOrder !== null) {
-            $items = $items->where([$this->groupOrder => $this->owner->{$this->groupOrder}]);
+        $items->find();
+        if (!empty($this->groupOrder)) {
+            foreach ($this->groupOrder as $item) {
+                $items->addWhere([$item => $this->owner->{$item}]);
+            }
         }
-        $items = $items->orderBy([$this->orderAttribute => SORT_ASC]);
-        $items = $items->all();
+        $items->orderBy([$this->orderAttribute => SORT_ASC]);
+        $items->all();
         \Yii::$app->i18n->translations['skinka/ordering/*'] = [
             'class' => PhpMessageSource::className(),
             'basePath' => '@vendor/skinka/yii2-ordering/messages',
@@ -172,6 +195,8 @@ class OrderBehavior extends Behavior
                 'skinka/ordering/core' => 'core.php',
             ],
         ];
-        return ArrayHelper::merge(ArrayHelper::merge(['' => \Yii::t('skinka/ordering/core', '<< First >>')], ArrayHelper::map($items, $valueField, $textField)), ['-1' => \Yii::t('skinka/ordering/core', '<< Last >>')]);
+        return ArrayHelper::merge(ArrayHelper::merge(['' => \Yii::t('skinka/ordering/core', '<< First >>')],
+            ArrayHelper::map($items, $valueField, $textField)),
+            ['-1' => \Yii::t('skinka/ordering/core', '<< Last >>')]);
     }
 }
