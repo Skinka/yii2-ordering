@@ -179,15 +179,15 @@ class OrderBehavior extends Behavior
     public function getOrderingList($valueField, $textField)
     {
         /** @var \yii\db\ActiveRecord $items */
-        $items = new $this->owner;
-        $items->find();
+        $items = $this->owner;
+        $items = $items::find();
+        /** @var \yii\db\ActiveQuery $items */
         if (!empty($this->groupOrder)) {
             foreach ($this->groupOrder as $item) {
-                $items->addWhere([$item => $this->owner->{$item}]);
+                $items->andWhere([$item => $this->owner->{$item}]);
             }
         }
         $items->orderBy([$this->orderAttribute => SORT_ASC]);
-        $items->all();
         \Yii::$app->i18n->translations['skinka/ordering/*'] = [
             'class' => PhpMessageSource::className(),
             'basePath' => '@vendor/skinka/yii2-ordering/messages',
@@ -196,7 +196,7 @@ class OrderBehavior extends Behavior
             ],
         ];
         return ArrayHelper::merge(ArrayHelper::merge(['' => \Yii::t('skinka/ordering/core', '<< First >>')],
-            ArrayHelper::map($items, $valueField, $textField)),
+            ArrayHelper::map($items->asArray()->all(), $valueField, $textField)),
             ['-1' => \Yii::t('skinka/ordering/core', '<< Last >>')]);
     }
 }
