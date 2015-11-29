@@ -10,7 +10,13 @@ use yii\db\Query;
 use yii\helpers\ArrayHelper;
 use yii\i18n\PhpMessageSource;
 
-
+/**
+ *
+ * @property ActiveRecord $owner
+ *
+ * @property string $orderAttribute
+ * @property array $groupOrder
+ */
 class OrderBehavior extends Behavior
 {
     public $orderAttribute = 'ordering';
@@ -158,8 +164,9 @@ class OrderBehavior extends Behavior
 
     private function groupOrdering($groupItems = [])
     {
-        /*$db = $this->owner->getDb();
-        $sql = "update " . $db = $this->owner->tableName() . " set " .
+        /** @var \yii\db\Connection $db */
+        $db = $this->owner->getDb();
+        $sql = "update " . $this->owner->tableName() . " set " .
                 $db->quoteColumnName($this->orderAttribute) . " = (select @a:= @a + 1 from (select @a:=-1) as inc)";
         if ($this->groupOrder !== null && !empty($groupItems)) {
             $groupSql = ' where ';
@@ -173,7 +180,7 @@ class OrderBehavior extends Behavior
             $sql .= substr($groupSql, 0, -5);
         }
         $sql .= " order by `" . $this->orderAttribute . "` asc";
-        $db->createCommand($sql)->execute();*/
+        \Yii::$app->db->createCommand($sql)->execute();
     }
 
     public function getOrderingList($valueField, $textField)
